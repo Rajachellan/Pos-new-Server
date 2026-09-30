@@ -33,6 +33,11 @@ app.use('/api',tableRoute)
 const menuRoute=require('./routes/menuRoutes')
 app.use('/api',menuRoute)
 
+// Cart Route
+const cartRoute=require('./routes/cartRoutes')
+app.use('/api',cartRoute)
+
+
 app.listen( portNumber, ()=>{
     console.log(`Server Running Successfully On ${portNumber}`);
     
