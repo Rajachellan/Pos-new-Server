@@ -1,14 +1,65 @@
-const express=require('express')
+const express = require('express');
+const router = express.Router();
 
-const router=express.Router()
+const authMiddleware = require('../middleware/authMiddleware');
+const organizationMiddleware = require('../middleware/organizationMiddleware');
+const { requirePermission } = require('../middleware/permissionMiddleware');
 
-const {addTableFun,getAllTables,getTableByArea,getTableByBranch}=require('../controller/tableController')
+const {
+  addTableFun,
+  getAllTables,
+  getTableByArea,
+  getTableByBranch,
+  updateTable,
+  deleteTable,
+} = require('../controller/tableController');
 
-const authMiddleware=require('../middleware/authMiddleware')
+router.post(
+  '/add/tables',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.create'),
+  addTableFun
+);
 
-router.post('/add/tables', authMiddleware, addTableFun)
-router.get('/get/all/tables', authMiddleware, getAllTables)
-router.get('/get/tables/area/:id', authMiddleware, getTableByArea)
-router.get('/get/tables/branch', authMiddleware, getTableByBranch)
+router.get(
+  '/get/all/tables',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.view'),
+  getAllTables
+);
 
-module.exports=router
+router.get(
+  '/get/tables/area/:id',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.view'),
+  getTableByArea
+);
+
+router.get(
+  '/get/tables/branch',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.view'),
+  getTableByBranch
+);
+
+router.put(
+  '/tables/:id',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.update'),
+  updateTable
+);
+
+router.delete(
+  '/tables/:id',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('table.delete'),
+  deleteTable
+);
+
+module.exports = router;

@@ -1,73 +1,253 @@
-const branchModel=require('../model/branchSchema')
+const branchModel = require('../model/branchSchema');
+const { logAudit } = require('../utils/auditLogger');
 
+// 1. Add Branch (Tenant-Scoped)
+async function addBranch(req, res) {
+  const { branchName, branchCode, address } = req.body;
+  let orgId = req.organizationId || req.user?.organizationId;
 
-async function addBranch(req,res) {
-    const {branchName,branchCode,address}=req.body
-
-    try{
-        if(!branchName || !branchCode || !address){
-            return res.status(400).json({
-                success:false,
-                message:"Please Provide Valid Inputs"
-            })
-        }
-
-        const newBranch=new branchModel({branchName,branchCode,address,createdBy:req.user.userId})
-
-        await newBranch.save()
-        res.status(200).json({
-            success:true,
-            message:"New Branch Created Successfully"
-        })
-
+  try {
+    if (!branchName || !branchCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch name and branch code are required',
+      });
     }
-    catch(err){
-        res.status(500).json({
-            success:false,
-            message:`ErrorName:${err.name} ErrorMessage:${err.message}`
-        })
+
+    if (!orgId && req.user?.systemRole === 'SUPER_ADMIN') {
+      const reqOrg = req.headers['x-organization-id'] || req.body?.organizationId;
+      if (reqOrg) {
+        orgId = reqOrg;
+      } else {
+        const Organization = require('../model/organizationSchema');
+        const fallbackOrg = await Organization.findOne({ status: 'ACTIVE' }).sort({ createdAt: -1 });
+        if (fallbackOrg) orgId = fallbackOrg._id;
+      }
     }
+
+    if (!orgId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Organization context required to add branch',
+      });
+    }
+
+    const code = branchCode.toUpperCase().trim();
+
+    // Check duplicate branchCode in organization
+    const existing = await branchModel.findOne({
+      organization: orgId,
+      branchCode: code,
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'A branch with this code already exists in your organization',
+      });
+    }
+
+    const newBranch = new branchModel({
+      organization: orgId,
+      branchName: branchName.trim(),
+      branchCode: code,
+      address: address ? address.trim() : '',
+      createdBy: req.user.userId,
+    });
+
+    await newBranch.save();
+
+    await logAudit({
+      req,
+      action: 'BRANCH_CREATED',
+      module: 'branch',
+      targetId: newBranch._id,
+      description: `Branch "${newBranch.branchName}" (${newBranch.branchCode}) created`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'New Branch Created Successfully',
+      data: newBranch,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
 }
 
-// Get Branches 
-async function getBranch(req,res) {
-    try{
-        const getBranchDatas=await branchModel.find().populate("createdBy","_id name email")
-        res.status(201).json({
-            success:true,
-            message:"Data Fetched",
-            data:getBranchDatas
-        })
-    }
-    catch(err){
-        res.status(500).json({
-            success:false,
-            message:`ErrorName:${err.name} ErrorMessage:${err.message}`
-        })
-    }
-}   
+// 2. Get Branches (Tenant-Scoped)
+async function getBranch(req, res) {
+  try {
+    const orgId = req.organizationId || req.user.organizationId;
+    const filter = orgId ? { organization: orgId } : {};
 
+    const branches = await branchModel.find(filter)
+      .populate('createdBy', '_id name email')
+      .sort({ createdAt: -1 });
 
-// Get Branch By Role
-async function getBranchByRole(req,res) {
-    try{
-        const filterBranch=req.user.role === "Super-Admin" ? {} :
-        { _id:req.user.branch}
-
-        const data=await branchModel.find(filterBranch)
-        res.status(201).json({
-            success:true,
-            message:"Data Fetched",
-            data:data
-        })
-    }
-    catch(err){
-        res.status(500).json({
-            success:false,
-            message:`ErrorName:${err.name} ErrorMessage:${err.message}`
-        })
-    }
+    return res.status(200).json({
+      success: true,
+      message: 'Data Fetched',
+      data: branches,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
 }
 
+// 3. Get Branch By Role / Scope
+async function getBranchByRole(req, res) {
+  try {
+    const orgId = req.organizationId || req.user?.organizationId;
+    const isSuperAdmin = req.user?.systemRole === 'SUPER_ADMIN';
+    const isOwnerOrAdmin = req.user?.organizationRole === 'OWNER' || req.user?.organizationRole === 'ADMIN' || req.user?.role === 'Admin';
 
-module.exports={addBranch,getBranch,getBranchByRole}
+    let filter = {};
+    if (orgId) {
+      filter.organization = orgId;
+    }
+
+    const isManager = req.user?.organizationRole === 'MANAGER' || req.user?.role === 'Manager';
+
+    // Only Staff is locked to their designated branch; Admin and Manager can access all branches
+    const staffBranch = req.user?.branch || req.user?.branchId;
+    if (req.user && !isSuperAdmin && !isOwnerOrAdmin && !isManager && staffBranch) {
+      filter._id = staffBranch;
+    }
+
+    const data = await branchModel.find(filter).sort({ branchName: 1 });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Data Fetched',
+      data,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+// 4. Update Branch
+async function updateBranch(req, res) {
+  const { id } = req.params;
+  const { branchName, branchCode, address, isActive } = req.body;
+  const orgId = req.organizationId || req.user.organizationId;
+
+  try {
+    const branch = await branchModel.findOne({
+      _id: id,
+      ...(orgId ? { organization: orgId } : {}),
+    });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Branch not found or inaccessible',
+      });
+    }
+
+    if (branchName) branch.branchName = branchName.trim();
+    if (branchCode) branch.branchCode = branchCode.toUpperCase().trim();
+    if (address !== undefined) branch.address = address.trim();
+    if (isActive !== undefined) branch.isActive = Boolean(isActive);
+
+    await branch.save();
+
+    await logAudit({
+      req,
+      action: 'BRANCH_UPDATED',
+      module: 'branch',
+      targetId: branch._id,
+      description: `Branch "${branch.branchName}" updated`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Branch updated successfully',
+      data: branch,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+// 5. Delete / Deactivate Branch
+async function deleteBranch(req, res) {
+  const { id } = req.params;
+  const orgId = req.organizationId || req.user.organizationId;
+
+  try {
+    const branch = await branchModel.findOne({
+      _id: id,
+      ...(orgId ? { organization: orgId } : {}),
+    });
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Branch not found or inaccessible',
+      });
+    }
+
+    const areaModel = require('../model/areaSchema');
+    const linkedAreasCount = await areaModel.countDocuments({ branchName: id });
+
+    if (linkedAreasCount > 0) {
+      branch.isActive = false;
+      await branch.save();
+
+      await logAudit({
+        req,
+        action: 'BRANCH_DEACTIVATED',
+        module: 'branch',
+        targetId: branch._id,
+        description: `Branch "${branch.branchName}" deactivated (has ${linkedAreasCount} linked areas)`,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Branch deactivated successfully (retained due to ${linkedAreasCount} linked area(s))`,
+      });
+    }
+
+    await branchModel.findByIdAndDelete(id);
+
+    await logAudit({
+      req,
+      action: 'BRANCH_DELETED',
+      module: 'branch',
+      targetId: id,
+      description: `Branch "${branch.branchName}" deleted`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Branch deleted successfully',
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+module.exports = {
+  addBranch,
+  getBranch,
+  getBranchByRole,
+  updateBranch,
+  deleteBranch,
+};

@@ -1,31 +1,151 @@
-require('dotenv').config()
+require('dotenv').config();
+const jwt = require('jsonwebtoken');
+const User = require('../model/userSchema');
+const Role = require('../model/roleSchema');
+const Organization = require('../model/organizationSchema');
 
-const jwt=require('jsonwebtoken')
+async function populateUserContext(decoded) {
+  const user = await User.findById(decoded.userId)
+    .populate({
+      path: 'role',
+      populate: {
+        path: 'permissions',
+        select: 'key module action',
+      },
+    })
+    .select('-password');
 
-function authMiddleware(req,res,next){
-    const authHeader=req.headers.authorization;
+  if (!user) return null;
+  if (user.status !== 'ACTIVE') {
+    const error = new Error('User account is not active');
+    error.statusCode = 403;
+    throw error;
+  }
 
-    if(!authHeader || !authHeader.startsWith("Bearer")){
-        return res.status(400).json({
-            success:false,
-            message:"Access Token Is Required"
-        })
+  // Check organization status for non-superadmin
+  let organization = null;
+  if (user.systemRole !== 'SUPER_ADMIN' && user.organization) {
+    organization = await Organization.findById(user.organization);
+    if (!organization || organization.status !== 'ACTIVE') {
+      const error = new Error('Organization is inactive or suspended');
+      error.statusCode = 403;
+      throw error;
     }
+  }
 
-    const token=authHeader.split(" ")[1]
-
-    try{
-        const decodedUser=jwt.verify(token,process.env.JWT_SECRET_KEY)
-        req.user=decodedUser
-        next()
+  // Extract permission keys
+  let permissions = [];
+  if (user.role && Array.isArray(user.role.permissions)) {
+    permissions = user.role.permissions.map((p) => (typeof p === 'string' ? p : p.key));
+  } else if (user.systemRole !== 'SUPER_ADMIN' && user.organizationRole) {
+    // If no custom role attached, fallback to matching system template role
+    const systemTemplateRole = await Role.findOne({
+      key: user.organizationRole,
+      organization: null,
+    }).populate('permissions', 'key');
+    if (systemTemplateRole && Array.isArray(systemTemplateRole.permissions)) {
+      permissions = systemTemplateRole.permissions.map((p) => p.key);
     }
-    catch(err){
-       return res.status(400).json({
-            success:false,
-            message:"Invalid or Expired Token"
-        })
-    }
+  }
 
+  const isSuperAdmin = user.systemRole === 'SUPER_ADMIN';
+  const isOwnerOrAdmin = user.organizationRole === 'OWNER' || user.organizationRole === 'ADMIN';
+  const isManager = user.organizationRole === 'MANAGER';
+  const isStaff = !isSuperAdmin && !isOwnerOrAdmin && !isManager;
+
+  const legacyRole = isSuperAdmin
+    ? 'Super-Admin'
+    : isOwnerOrAdmin
+    ? 'Admin'
+    : isManager
+    ? 'Manager'
+    : 'Staff';
+
+  return {
+    id: user._id.toString(),
+    userId: user._id.toString(),
+    name: user.name,
+    email: user.email,
+    username: user.username,
+    systemRole: user.systemRole,
+    organizationId: user.organization ? user.organization.toString() : null,
+    organizationRole: user.organizationRole || null,
+    branchId: user.branch ? user.branch.toString() : null,
+    branch: user.branch ? user.branch.toString() : null,
+    roleId: user.role ? (user.role._id ? user.role._id.toString() : user.role.toString()) : null,
+    role: legacyRole,
+    isSuperAdmin,
+    isAdmin: isSuperAdmin || isOwnerOrAdmin,
+    isManager,
+    isStaff,
+    canViewFinances: isSuperAdmin || isOwnerOrAdmin,
+    permissions,
+    userDoc: user,
+    organizationDoc: organization,
+  };
 }
 
-module.exports=authMiddleware
+async function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Access Token Is Required',
+      code: 'UNAUTHORIZED',
+    });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const secret = process.env.JWT_SECRET_KEY || 'antigravity_pos_jwt_secret_key_2025';
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    const userContext = await populateUserContext(decoded);
+
+    if (!userContext) {
+      return res.status(401).json({
+        success: false,
+        message: 'User Not Found or Token Invalid',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    req.user = userContext;
+    next();
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        success: false,
+        message: err.message,
+        code: 'FORBIDDEN',
+      });
+    }
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or Expired Token',
+      code: 'UNAUTHORIZED',
+    });
+  }
+}
+
+async function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    const secret = process.env.JWT_SECRET_KEY || 'antigravity_pos_jwt_secret_key_2025';
+    try {
+      const decoded = jwt.verify(token, secret);
+      const userContext = await populateUserContext(decoded);
+      if (userContext) {
+        req.user = userContext;
+      }
+    } catch (err) {
+      // Ignore token errors for optional auth
+    }
+  }
+  next();
+}
+
+module.exports = authMiddleware;
+module.exports.optionalAuth = optionalAuth;

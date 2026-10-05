@@ -1,35 +1,50 @@
-const mongoose=require('mongoose')
+const mongoose = require('mongoose');
 
-const tableSchema=new mongoose.Schema({
-    tableNumber:{
-        type:String,
-        trim:true,
-        uppercase:true
+const tableSchema = new mongoose.Schema(
+  {
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: true,
+      index: true,
     },
-
-    areaName:{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"Areas",
-        required:true,
-        trim:true
+    branch: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch',
+      default: null,
+      index: true,
     },
-    availabilityStatus:{
-        type:String,
-        enum:["AVAILABLE","OCCUPIED"],
-        required:true,
-        default:"AVAILABLE"
+    tableNumber: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
     },
-    createdBy:{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"User",
-        required:true
-    }
-},
-    {
-        timestamps:true
-    }
-)
+    areaName: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Areas',
+      required: true,
+      index: true,
+    },
+    availabilityStatus: {
+      type: String,
+      enum: ['AVAILABLE', 'OCCUPIED'],
+      required: true,
+      default: 'AVAILABLE',
+      index: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-const tableModel=mongoose.model("Tables",tableSchema)
+tableSchema.index({ organization: 1, areaName: 1 });
+tableSchema.index({ organization: 1, branch: 1 });
 
-module.exports=tableModel
+module.exports = mongoose.model('Tables', tableSchema);

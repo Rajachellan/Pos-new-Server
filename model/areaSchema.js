@@ -1,34 +1,41 @@
-const mongoose=require('mongoose')
+const mongoose = require('mongoose');
 
-
-const areaSchema=new mongoose.Schema({
-    areaName:{
-        type:String,
-        required:true,
-        trim:true
+const areaSchema = new mongoose.Schema(
+  {
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: true,
+      index: true,
     },
-    areaCode:{
-        type:String,
-        required:true,
-        uppercase:true
+    areaName: {
+      type: String,
+      required: true,
+      trim: true,
     },
-    branchName:{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"Branch",
-        required:true
+    areaCode: {
+      type: String,
+      required: true,
+      uppercase: true,
+      trim: true,
     },
-    createdBy:{
-        type:mongoose.Schema.Types.ObjectId,
-        ref:"User",
-        required:true
-    }
-},
-    {
-        timestamps:true
-    }
+    branchName: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Branch',
+      required: true,
+      index: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-)
+areaSchema.index({ organization: 1, branchName: 1 });
 
-const areaModel=mongoose.model("Areas",areaSchema)
-
-module.exports=areaModel
+module.exports = mongoose.model('Areas', areaSchema);

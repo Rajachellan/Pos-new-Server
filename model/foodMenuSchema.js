@@ -1,23 +1,51 @@
-const mongoose=require('mongoose')
+const mongoose = require('mongoose');
 
-const schema=mongoose.Schema({
-    category:{
-        type:String,
-        required:true,
-        enum:["Biryani","Starters","Tandoori","Chinese","Fast-Food","Soups","Desserts","Drinks","Meals"]
+const schema = new mongoose.Schema(
+  {
+    organization: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Organization',
+      required: true,
+      index: true,
     },
-    name:{
-    type:String,
-    required:true,
-    trim:true
+    category: {
+      type: String,
+      required: true,
+      trim: true,
     },
-    price:{
-        type:Number,
-        required:true
+    name: {
+      type: String,
+      required: true,
+      trim: true,
     },
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    description: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-})
+schema.index({ organization: 1, category: 1 });
+schema.index({ organization: 1, name: 1 });
 
-const model=mongoose.model("MenuLists",schema)
+const model = mongoose.model('MenuLists', schema);
 
-module.exports=model
+module.exports = model;

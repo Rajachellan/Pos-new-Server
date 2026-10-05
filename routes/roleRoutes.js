@@ -6,42 +6,45 @@ const organizationMiddleware = require('../middleware/organizationMiddleware');
 const { requirePermission } = require('../middleware/permissionMiddleware');
 
 const {
-  addMenuFun,
-  getMenuFun,
-  updateMenuFun,
-  deleteMenuFun,
-} = require('../controller/foodMenuController');
+  listPermissions,
+  listRoles,
+  createRole,
+  updateRole,
+  deleteRole,
+} = require('../controller/roleController');
 
-router.post(
-  '/add/menu',
-  authMiddleware,
-  organizationMiddleware,
-  requirePermission('food_menu.create'),
-  addMenuFun
-);
+router.get('/permissions', authMiddleware, listPermissions);
 
 router.get(
-  '/get/menus',
+  '/roles',
   authMiddleware,
   organizationMiddleware,
-  requirePermission('food_menu.view'),
-  getMenuFun
+  requirePermission('role.view'),
+  listRoles
+);
+
+router.post(
+  '/roles',
+  authMiddleware,
+  organizationMiddleware,
+  requirePermission('role.create'),
+  createRole
 );
 
 router.put(
-  '/menu/:id',
+  '/roles/:id',
   authMiddleware,
   organizationMiddleware,
-  requirePermission('food_menu.update'),
-  updateMenuFun
+  requirePermission('role.update'),
+  updateRole
 );
 
 router.delete(
-  '/menu/:id',
+  '/roles/:id',
   authMiddleware,
   organizationMiddleware,
-  requirePermission('food_menu.delete'),
-  deleteMenuFun
+  requirePermission('role.delete'),
+  deleteRole
 );
 
 module.exports = router;
