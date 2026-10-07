@@ -55,11 +55,12 @@ const corsOptions = {
     'Content-Type',
     'Authorization',
     'x-organization-id',
+    'x-branch-id',
     'Accept',
     'Origin',
     'X-Requested-With'
   ],
-  exposedHeaders: ['Authorization', 'x-organization-id']
+  exposedHeaders: ['Authorization', 'x-organization-id', 'x-branch-id']
 };
 
 app.use(cors(corsOptions));

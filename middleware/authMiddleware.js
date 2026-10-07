@@ -1,5 +1,7 @@
 require('dotenv').config();
 const jwt = require('jsonwebtoken');
+require('../model/permissionSchema');
+require('../model/branchSchema');
 const User = require('../model/userSchema');
 const Role = require('../model/roleSchema');
 const Organization = require('../model/organizationSchema');
@@ -44,7 +46,41 @@ async function populateUserContext(decoded) {
       organization: null,
     }).populate('permissions', 'key');
     if (systemTemplateRole && Array.isArray(systemTemplateRole.permissions)) {
-      permissions = systemTemplateRole.permissions.map((p) => p.key);
+      permissions = systemTemplateRole.permissions.map((p) => (typeof p === 'string' ? p : p.key));
+    }
+  }
+
+  // Default fallback permissions if roles table was unseeded or permissions array is empty
+  if (permissions.length === 0) {
+    if (user.systemRole === 'SUPER_ADMIN' || user.organizationRole === 'OWNER' || user.organizationRole === 'ADMIN') {
+      permissions = ['*'];
+    } else if (user.organizationRole === 'MANAGER') {
+      permissions = [
+        'dashboard.view',
+        'branch.view', 'branch.create', 'branch.update', 'branch.delete',
+        'table.view', 'table.create', 'table.update', 'table.delete',
+        'food_menu.view', 'food_menu.create', 'food_menu.update', 'food_menu.delete',
+        'restaurant.view', 'restaurant.create', 'restaurant.update', 'restaurant.delete',
+        'cart.view', 'cart.create', 'cart.update', 'cart.delete',
+        'user.view', 'user.create', 'user.update',
+        'role.view', 'role.create', 'role.update',
+        'reservation.view', 'reservation.create', 'reservation.update', 'reservation.delete',
+        'room.view', 'room.create', 'room.update', 'room.delete',
+        'guest.view', 'guest.create', 'guest.update', 'guest.delete',
+        'checkin.create', 'checkout.create',
+        'housekeeping.view', 'housekeeping.create', 'housekeeping.update', 'housekeeping.delete',
+        'payment.view', 'payment.create',
+        'report.view',
+      ];
+    } else if (user.organizationRole === 'STAFF') {
+      permissions = [
+        'dashboard.view',
+        'table.view', 'table.update',
+        'food_menu.view',
+        'restaurant.view', 'restaurant.create', 'restaurant.update',
+        'cart.view', 'cart.create', 'cart.update', 'cart.delete',
+        'branch.view',
+      ];
     }
   }
 
@@ -121,10 +157,18 @@ async function authMiddleware(req, res, next) {
         code: 'FORBIDDEN',
       });
     }
-    return res.status(401).json({
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or Expired Token',
+        code: 'UNAUTHORIZED',
+      });
+    }
+    console.error('Auth Middleware Internal Error:', err);
+    return res.status(500).json({
       success: false,
-      message: 'Invalid or Expired Token',
-      code: 'UNAUTHORIZED',
+      message: 'Internal authentication error: ' + err.message,
+      code: 'INTERNAL_ERROR',
     });
   }
 }

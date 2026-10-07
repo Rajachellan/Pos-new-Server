@@ -24,7 +24,7 @@ function generateToken(user) {
   };
 
   const secret = process.env.JWT_SECRET_KEY || 'antigravity_pos_jwt_secret_key_2025';
-  const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+  const expiresIn = process.env.JWT_EXPIRES_IN || '30d';
 
   return jwt.sign(payload, secret, { expiresIn });
 }

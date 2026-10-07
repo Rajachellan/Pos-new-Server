@@ -15,7 +15,8 @@ const areaSchema = new mongoose.Schema(
     },
     areaCode: {
       type: String,
-      required: true,
+      required: false,
+      default: '',
       uppercase: true,
       trim: true,
     },

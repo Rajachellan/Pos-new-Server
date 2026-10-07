@@ -12,7 +12,17 @@ async function dbConnect() {
 
         await mongoose.connect(MONGO_URI)
 
-        console.log("Database Connected Successfully");
+        // Ensure all core schemas are registered
+        require('../model/organizationSchema');
+        require('../model/branchSchema');
+        require('../model/permissionSchema');
+        require('../model/roleSchema');
+        require('../model/userSchema');
+        require('../model/areaSchema');
+        require('../model/tableModel');
+        require('../model/foodMenuSchema');
+
+        console.log("Database Connected Successfully and Schemas Registered");
         
     }
     catch(err){

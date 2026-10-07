@@ -7,10 +7,10 @@ async function addBranch(req, res) {
   let orgId = req.organizationId || req.user?.organizationId;
 
   try {
-    if (!branchName || !branchCode) {
+    if (!branchName || !branchName.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Branch name and branch code are required',
+        message: 'Branch name is required',
       });
     }
 
@@ -32,7 +32,9 @@ async function addBranch(req, res) {
       });
     }
 
-    const code = branchCode.toUpperCase().trim();
+    const code = (branchCode && branchCode.trim())
+      ? branchCode.toUpperCase().trim()
+      : (branchName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'BR') + '-' + Math.floor(100 + Math.random() * 900);
 
     // Check duplicate branchCode in organization
     const existing = await branchModel.findOne({

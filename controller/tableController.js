@@ -156,9 +156,28 @@ async function getAllTables(req, res) {
   }
 
   try {
+    const mongoose = require('mongoose');
+    const branchModel = require('../model/branchSchema');
+
     let filter = orgId ? { organization: orgId } : {};
 
     if (targetBranch) {
+      if (!mongoose.Types.ObjectId.isValid(targetBranch)) {
+        const foundBranch = await branchModel.findOne({
+          organization: orgId,
+          $or: [{ branchName: targetBranch }, { branchCode: targetBranch }],
+        });
+        if (foundBranch) {
+          targetBranch = foundBranch._id;
+        } else {
+          return res.status(200).json({
+            success: true,
+            message: 'Data Fetched',
+            data: [],
+          });
+        }
+      }
+
       const areas = await areaModel.find({
         ...(orgId ? { organization: orgId } : {}),
         branchName: targetBranch,
@@ -237,23 +256,43 @@ async function getTableByArea(req, res) {
 async function getTableByBranch(req, res) {
   const orgId = req.organizationId || req.user.organizationId;
   const isSuperAdmin = req.user?.systemRole === 'SUPER_ADMIN';
-  const isOwnerOrAdmin = req.user?.organizationRole === 'OWNER' || req.user?.organizationRole === 'ADMIN';
+  const isOwnerOrAdmin = req.user?.organizationRole === 'OWNER' || req.user?.organizationRole === 'ADMIN' || req.user?.role === 'Admin';
+  const isManager = req.user?.organizationRole === 'MANAGER' || req.user?.role === 'Manager';
 
   let branchId = req.query.branchId;
   if (branchId === 'ALL' || branchId === 'all') {
     branchId = null;
   }
 
-  // If user is staff/waiter, lock strictly to their assigned branch
+  // If user is staff/waiter, lock strictly to their assigned branch (Admin and Manager have multi-branch access)
   const staffBranch = req.user?.branch || req.user?.branchId;
-  if (!isSuperAdmin && !isOwnerOrAdmin && staffBranch) {
+  if (!isSuperAdmin && !isOwnerOrAdmin && !isManager && staffBranch) {
     branchId = staffBranch;
   }
 
   try {
+    const mongoose = require('mongoose');
+    const branchModel = require('../model/branchSchema');
+
     let filter = orgId ? { organization: orgId } : {};
 
     if (branchId) {
+      if (!mongoose.Types.ObjectId.isValid(branchId)) {
+        const foundBranch = await branchModel.findOne({
+          organization: orgId,
+          $or: [{ branchName: branchId }, { branchCode: branchId }],
+        });
+        if (foundBranch) {
+          branchId = foundBranch._id;
+        } else {
+          return res.status(200).json({
+            success: true,
+            message: 'Tables fetched by branch',
+            data: [],
+          });
+        }
+      }
+
       const areas = await areaModel.find({
         ...(orgId ? { organization: orgId } : {}),
         branchName: branchId,

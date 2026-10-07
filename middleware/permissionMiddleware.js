@@ -26,19 +26,37 @@ function requirePermission(requiredPermission) {
       });
     }
 
-    // Organization OWNER has full access to all organization modules
-    if (req.user.organizationRole === 'OWNER') {
+    // Organization OWNER and ADMIN have full access to all organization modules
+    if (
+      req.user.organizationRole === 'OWNER' ||
+      req.user.organizationRole === 'ADMIN' ||
+      req.user.isAdmin
+    ) {
       return next();
     }
 
     const userPermissions = req.user.permissions || [];
+    if (userPermissions.includes('*')) {
+      return next();
+    }
 
     // Support single permission key or array of required keys
     const permissionsToCheck = Array.isArray(requiredPermission)
       ? requiredPermission
       : [requiredPermission];
 
-    const hasPermission = permissionsToCheck.some((p) => userPermissions.includes(p));
+    // Manager role has built-in access to restaurant operations (tables, areas, branches, menus, orders, cart, etc.)
+    const isManagerUser = req.user.organizationRole === 'MANAGER' || req.user.isManager;
+    const managerAllowedPrefixes = [
+      'branch.', 'table.', 'food_menu.', 'restaurant.', 'cart.',
+      'user.', 'role.',
+      'reservation.', 'room.', 'guest.', 'checkin.', 'checkout.',
+      'housekeeping.', 'dashboard.', 'payment.view', 'payment.create', 'report.view',
+    ];
+
+    const hasPermission = permissionsToCheck.some(
+      (p) => userPermissions.includes(p) || (isManagerUser && managerAllowedPrefixes.some((pref) => p.startsWith(pref) || p === pref))
+    );
 
     if (!hasPermission) {
       return res.status(403).json({

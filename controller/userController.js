@@ -1,4 +1,6 @@
 const bcrypt = require('bcrypt');
+require('../model/permissionSchema');
+require('../model/organizationSchema');
 const userModel = require('../model/userSchema');
 const Role = require('../model/roleSchema');
 const Branch = require('../model/branchSchema');
@@ -279,6 +281,39 @@ async function userLogin(req, res) {
       }).populate('permissions', 'key');
       if (templateRole && templateRole.permissions) {
         permissions = templateRole.permissions.map((p) => p.key);
+      }
+    }
+
+    if (permissions.length === 0) {
+      if (user.systemRole === 'SUPER_ADMIN' || user.organizationRole === 'OWNER' || user.organizationRole === 'ADMIN') {
+        permissions = ['*'];
+      } else if (user.organizationRole === 'MANAGER') {
+        permissions = [
+          'dashboard.view',
+          'branch.view', 'branch.create', 'branch.update', 'branch.delete',
+          'table.view', 'table.create', 'table.update', 'table.delete',
+          'food_menu.view', 'food_menu.create', 'food_menu.update', 'food_menu.delete',
+          'restaurant.view', 'restaurant.create', 'restaurant.update', 'restaurant.delete',
+          'cart.view', 'cart.create', 'cart.update', 'cart.delete',
+          'user.view', 'user.create', 'user.update',
+          'role.view', 'role.create', 'role.update',
+          'reservation.view', 'reservation.create', 'reservation.update', 'reservation.delete',
+          'room.view', 'room.create', 'room.update', 'room.delete',
+          'guest.view', 'guest.create', 'guest.update', 'guest.delete',
+          'checkin.create', 'checkout.create',
+          'housekeeping.view', 'housekeeping.create', 'housekeeping.update', 'housekeeping.delete',
+          'payment.view', 'payment.create',
+          'report.view',
+        ];
+      } else if (user.organizationRole === 'STAFF') {
+        permissions = [
+          'dashboard.view',
+          'table.view', 'table.update',
+          'food_menu.view',
+          'restaurant.view', 'restaurant.create', 'restaurant.update',
+          'cart.view', 'cart.create', 'cart.update', 'cart.delete',
+          'branch.view',
+        ];
       }
     }
 

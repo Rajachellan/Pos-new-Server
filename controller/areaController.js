@@ -22,29 +22,45 @@ async function addArea(req, res) {
       });
     }
 
-    // Determine target branch
-    let targetBranchId = branchName || req.user?.branch || req.user?.branchId;
+    const mongoose = require('mongoose');
+    // Determine target branch using branch ID, header, user's branch, or organization
+    const rawBranchInput = branchName || req.body.branchId || req.headers['x-branch-id'] || req.user?.branch || req.user?.branchId;
     let branchDoc = null;
 
-    if (targetBranchId) {
-      branchDoc = await branchModel.findOne({
-        _id: targetBranchId,
+    if (rawBranchInput && rawBranchInput !== 'ALL' && rawBranchInput !== 'all') {
+      if (mongoose.Types.ObjectId.isValid(rawBranchInput)) {
+        branchDoc = await branchModel.findOne({
+          _id: rawBranchInput,
+          organization: orgId,
+        });
+      }
+      if (!branchDoc) {
+        branchDoc = await branchModel.findOne({
+          branchName: rawBranchInput,
+          organization: orgId,
+        });
+      }
+    }
+
+    // Fallback: Find active branch for this organization
+    if (!branchDoc) {
+      branchDoc = await branchModel.findOne({ organization: orgId, status: 'ACTIVE' }) ||
+                  await branchModel.findOne({ organization: orgId }).sort({ createdAt: 1 });
+    }
+
+    if (!branchDoc) {
+      // Auto-create default branch if organization has no branches yet
+      branchDoc = await branchModel.create({
         organization: orgId,
+        branchName: 'Main Branch',
+        branchCode: 'HQ01',
+        createdBy: req.user.userId,
       });
     }
 
-    if (!branchDoc) {
-      branchDoc = await branchModel.findOne({ organization: orgId }).sort({ createdAt: 1 });
-    }
-
-    if (!branchDoc) {
-      return res.status(404).json({
-        success: false,
-        message: 'No branch found for your organization. Please create a branch first.',
-      });
-    }
-
-    const finalAreaCode = areaCode ? areaCode.toUpperCase().trim() : (areaName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'AR') + '-' + Math.floor(100 + Math.random() * 900);
+    const finalAreaCode = (areaCode && areaCode.trim())
+      ? areaCode.toUpperCase().trim()
+      : (areaName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'AR') + '-' + Math.floor(100 + Math.random() * 900);
 
     const newArea = new areaModel({
       organization: orgId,
@@ -96,6 +112,25 @@ async function getAreaByBranch(req, res) {
   }
 
   try {
+    const mongoose = require('mongoose');
+    if (targetBranch) {
+      if (!mongoose.Types.ObjectId.isValid(targetBranch)) {
+        const foundBranch = await branchModel.findOne({
+          organization: orgId,
+          $or: [{ branchName: targetBranch }, { branchCode: targetBranch }],
+        });
+        if (foundBranch) {
+          targetBranch = foundBranch._id;
+        } else {
+          return res.status(200).json({
+            success: true,
+            message: 'Data Fetched',
+            data: [],
+          });
+        }
+      }
+    }
+
     const filter = {
       ...(orgId ? { organization: orgId } : {}),
       ...(targetBranch ? { branchName: targetBranch } : {}),

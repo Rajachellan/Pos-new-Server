@@ -30,16 +30,19 @@ const systemRoleDefinitions = [
     isSystemRole: true,
     permissionFilter: (key) =>
       key.startsWith('dashboard.') ||
+      key.startsWith('branch.') ||
+      key.startsWith('table.') ||
+      key.startsWith('food_menu.') ||
+      key.startsWith('restaurant.') ||
+      key.startsWith('cart.') ||
+      key.startsWith('user.') ||
+      key.startsWith('role.') ||
       key.startsWith('reservation.') ||
       key.startsWith('room.') ||
       key.startsWith('guest.') ||
       key.startsWith('checkin.') ||
       key.startsWith('checkout.') ||
       key.startsWith('housekeeping.') ||
-      key.startsWith('restaurant.') ||
-      key.startsWith('table.') ||
-      key.startsWith('cart.') ||
-      key.startsWith('food_menu.') ||
       key.startsWith('payment.view') ||
       key.startsWith('payment.create') ||
       key.startsWith('report.view'),
