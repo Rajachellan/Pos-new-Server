@@ -3,7 +3,7 @@ const { logAudit } = require('../utils/auditLogger');
 
 // 1. Add Food Menu Item (Tenant-Scoped)
 async function addMenuFun(req, res) {
-  const { category, name, price, description, isAvailable } = req.body;
+  const { category, name, price, description, imageUrl, isAvailable } = req.body;
   const orgId = req.organizationId || req.user.organizationId;
 
   try {
@@ -27,6 +27,7 @@ async function addMenuFun(req, res) {
       name: name.trim(),
       price: Number(price),
       description: description ? description.trim() : '',
+      imageUrl: imageUrl ? imageUrl.trim() : '',
       isAvailable: isAvailable !== undefined ? Boolean(isAvailable) : true,
       createdBy: req.user.userId,
     });
@@ -79,7 +80,7 @@ async function getMenuFun(req, res) {
 // 3. Update Menu Item
 async function updateMenuFun(req, res) {
   const { id } = req.params;
-  const { category, name, price, description, isAvailable } = req.body;
+  const { category, name, price, description, imageUrl, isAvailable } = req.body;
   const orgId = req.organizationId || req.user.organizationId;
 
   try {
@@ -99,6 +100,7 @@ async function updateMenuFun(req, res) {
     if (name) item.name = name.trim();
     if (price !== undefined) item.price = Number(price);
     if (description !== undefined) item.description = description.trim();
+    if (imageUrl !== undefined) item.imageUrl = imageUrl.trim();
     if (isAvailable !== undefined) item.isAvailable = Boolean(isAvailable);
 
     await item.save();

@@ -45,6 +45,11 @@ const organizationSchema = new mongoose.Schema(
       uppercase: true,
       default: '',
     },
+    logoUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

@@ -119,6 +119,12 @@ app.use('/api',roleRoute)
 const roomRoute=require('./routes/roomRoutes')
 app.use('/api',roomRoute)
 
+// Upload Routes (Cloudflare R2)
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+const uploadRoute = require('./routes/uploadRoutes');
+app.use('/api', uploadRoute);
+
 
 const http = require('http')
 const server = http.createServer(app)

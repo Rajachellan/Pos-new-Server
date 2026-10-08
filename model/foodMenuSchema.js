@@ -28,6 +28,11 @@ const schema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    imageUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     isAvailable: {
       type: Boolean,
       default: true,

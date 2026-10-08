@@ -47,7 +47,7 @@ async function getOrganizationProfile(req, res) {
 async function updateOrganizationSettings(req, res) {
   try {
     const organizationId = req.organizationId || req.user.organizationId;
-    const { name, legalName, email, phno, address, gstNumber, settings } = req.body;
+    const { name, legalName, email, phno, address, gstNumber, logoUrl, settings } = req.body;
 
     const organization = await Organization.findById(organizationId);
     if (!organization) {
@@ -63,6 +63,7 @@ async function updateOrganizationSettings(req, res) {
     if (phno !== undefined) organization.phno = phno.trim();
     if (address !== undefined) organization.address = address.trim();
     if (gstNumber !== undefined) organization.gstNumber = gstNumber.trim().toUpperCase();
+    if (logoUrl !== undefined) organization.logoUrl = logoUrl.trim();
     if (settings) organization.settings = { ...organization.settings, ...settings };
 
     await organization.save();
