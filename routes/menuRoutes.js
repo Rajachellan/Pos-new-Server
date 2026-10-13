@@ -10,6 +10,9 @@ const {
   getMenuFun,
   updateMenuFun,
   deleteMenuFun,
+  getCategoriesFun,
+  addCategoryFun,
+  deleteCategoryFun,
 } = require('../controller/foodMenuController');
 
 router.post(
@@ -42,6 +45,28 @@ router.delete(
   organizationMiddleware,
   requirePermission('food_menu.delete'),
   deleteMenuFun
+);
+
+// Tenant-scoped category routes
+router.get(
+  '/get/categories',
+  authMiddleware,
+  organizationMiddleware,
+  getCategoriesFun
+);
+
+router.post(
+  '/add/category',
+  authMiddleware,
+  organizationMiddleware,
+  addCategoryFun
+);
+
+router.delete(
+  '/category/:id',
+  authMiddleware,
+  organizationMiddleware,
+  deleteCategoryFun
 );
 
 module.exports = router;

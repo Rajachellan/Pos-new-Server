@@ -16,6 +16,8 @@ const {
 	toggleGst,
 	getPosStats,
 	releaseTable,
+	createTakeawayOrder,
+	getTakeawayOrders,
 }=require('../controller/cartController')
 
 router.get('/pos/stats', optionalAuth, getPosStats)
@@ -34,5 +36,9 @@ router.patch('/orders/:id/status', optionalAuth, updateKitchenOrderStatus)
 router.patch('/kitchen/orders/:id/status', optionalAuth, updateKitchenOrderStatus)
 router.post('/tables/:tableId/release', optionalAuth, releaseTable)
 router.post('/tables/release/:tableId', optionalAuth, releaseTable)
+
+// Takeaway Routes
+router.post('/takeaway/create', optionalAuth, createTakeawayOrder)
+router.get('/takeaway/orders', optionalAuth, getTakeawayOrders)
 
 module.exports=router

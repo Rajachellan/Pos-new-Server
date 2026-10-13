@@ -37,6 +37,11 @@ const schema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    foodType: {
+      type: String,
+      enum: ['VEG', 'NON_VEG', 'EGG', ''],
+      default: '',
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

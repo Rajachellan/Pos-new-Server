@@ -975,6 +975,185 @@ async function releaseTable(req, res) {
   }
 }
 
+// =========================================================================
+// TAKEAWAY / PARCEL ORDER CONTROLLERS
+// =========================================================================
+
+async function createTakeawayOrder(req, res) {
+  const {
+    customerName = "",
+    customerPhone = "",
+    items = [],
+    notes = "",
+    paymentMethod = "",
+    gstEnabled = true,
+    discount = 0,
+    branchId: bodyBranchId,
+  } = req.body;
+
+  try {
+    if (!customerName || !customerName.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer name is compulsory for takeaway parcel orders",
+      });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one item is required for takeaway order",
+      });
+    }
+
+    const orgId = req.user?.organizationId;
+    const branchId =
+      bodyBranchId ||
+      req.user?.branch ||
+      req.user?.branchId ||
+      null;
+
+    // Calculate sequential token number for today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const todayCount = await cartModel.countDocuments({
+      ...(orgId ? { organization: orgId } : {}),
+      orderType: "TAKEAWAY",
+      createdAt: { $gte: startOfToday },
+    });
+
+    const tokenNum = String(todayCount + 1).padStart(2, "0");
+    const orderNumber = `TK-${tokenNum}`;
+
+    const subtotal = items.reduce(
+      (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1),
+      0
+    );
+    const gstAmount = gstEnabled ? Math.round(subtotal * 0.05 * 100) / 100 : 0;
+    const totalAmount = Math.max(0, Math.round((subtotal + gstAmount - (Number(discount) || 0)) * 100) / 100);
+
+    const isPaid = Boolean(paymentMethod);
+
+    const newCart = new cartModel({
+      organization: orgId,
+      branchId,
+      orderType: "TAKEAWAY",
+      orderNumber,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      notes: notes.trim(),
+      items: items.map((i) => ({
+        menuId: i.menuId || undefined,
+        name: i.name,
+        price: Number(i.price) || 0,
+        quantity: Number(i.quantity) || 1,
+        isManual: Boolean(i.isManual),
+        kitchenStatus: "NEW",
+        notes: i.notes || "",
+      })),
+      subtotal,
+      gstEnabled,
+      gstAmount,
+      discount: Number(discount) || 0,
+      totalAmount,
+      paymentMethod: paymentMethod || "",
+      paidAt: isPaid ? new Date() : undefined,
+      status: "ORDERED",
+      kitchenStatus: "NEW",
+      startedAt: new Date(),
+    });
+
+    await newCart.save();
+
+    // Broadcast to kitchen & branch displays
+    const branchIdStr = branchId ? branchId.toString() : null;
+    emitToBranch(branchIdStr, "kot_received", {
+      orderId: newCart._id,
+      branchId: branchIdStr,
+      orderNumber: newCart.orderNumber,
+      orderType: "TAKEAWAY",
+      customerName: newCart.customerName,
+      customerPhone: newCart.customerPhone,
+      items: newCart.items,
+      notes: newCart.notes,
+      status: "ORDERED",
+      kitchenStatus: "NEW",
+      createdAt: newCart.createdAt,
+    });
+
+    emitToBranch(branchIdStr, "order_updated", {
+      orderId: newCart._id,
+      branchId: branchIdStr,
+      orderNumber: newCart.orderNumber,
+      orderType: "TAKEAWAY",
+      status: "ORDERED",
+      kitchenStatus: "NEW",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Takeaway order created successfully",
+      data: newCart,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+async function getTakeawayOrders(req, res) {
+  try {
+    const orgId = req.user?.organizationId;
+    let targetBranch = req.query.branchId;
+    if (targetBranch === "ALL" || targetBranch === "all") targetBranch = null;
+    const isSuperAdmin = req.user?.systemRole === "SUPER_ADMIN";
+    const isOwnerOrAdmin = req.user?.organizationRole === "OWNER" || req.user?.organizationRole === "ADMIN" || req.user?.role === "Admin";
+    const isManager = req.user?.organizationRole === "MANAGER" || req.user?.role === "Manager";
+    const staffBranch = req.user?.branch || req.user?.branchId;
+
+    if (!isSuperAdmin && !isOwnerOrAdmin && !isManager && staffBranch) {
+      targetBranch = staffBranch;
+    }
+
+    const filter = {
+      orderType: "TAKEAWAY",
+      ...(orgId ? { organization: orgId } : {}),
+      ...(targetBranch ? { branchId: targetBranch } : {}),
+    };
+
+    const orders = await cartModel.find(filter).sort({ createdAt: -1 });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayOrders = orders.filter((o) => new Date(o.createdAt) >= todayStart);
+
+    const todaySales = todayOrders
+      .filter((o) => o.status === "COMPLETED")
+      .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    const activeOrders = orders.filter((o) => ["ORDERED", "PREPARING", "READY"].includes(o.status));
+    const readyOrders = orders.filter((o) => o.kitchenStatus === "READY" && o.status !== "COMPLETED");
+
+    return res.status(200).json({
+      success: true,
+      data: orders,
+      metrics: {
+        todaySales,
+        totalToday: todayOrders.length,
+        activeCount: activeOrders.length,
+        readyCount: readyOrders.length,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
 module.exports = {
   addToCart,
   getCart,
@@ -988,4 +1167,6 @@ module.exports = {
   payOrder,
   updateKitchenOrderStatus,
   releaseTable,
+  createTakeawayOrder,
+  getTakeawayOrders,
 };

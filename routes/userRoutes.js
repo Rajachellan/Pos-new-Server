@@ -8,6 +8,8 @@ const {
   listOrganizationUsers,
   updateUser,
   deleteUser,
+  changePassword,
+  updateOwnProfile,
 } = require('../controller/userController');
 
 const authMiddleware = require('../middleware/authMiddleware');
@@ -18,9 +20,12 @@ const { requirePermission } = require('../middleware/permissionMiddleware');
 router.post('/user/login', userLogin);
 router.post('/auth/login', userLogin);
 
-// Current user profile
+// Current user profile & password management
 router.get('/user/get', authMiddleware, getUserProfile);
 router.get('/auth/me', authMiddleware, getUserProfile);
+router.put('/user/profile', authMiddleware, updateOwnProfile);
+router.put('/user/change-password', authMiddleware, changePassword);
+router.post('/user/change-password', authMiddleware, changePassword);
 
 // Organization staff management routes
 router.post(

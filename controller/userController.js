@@ -624,6 +624,104 @@ async function deleteUser(req, res) {
   }
 }
 
+// 7. Change Password (Current Logged-in User)
+async function changePassword(req, res) {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user?.userId || req.user?._id;
+
+  try {
+    if (!newPassword || newPassword.trim().length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long',
+      });
+    }
+
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Verify current password if provided
+    if (currentPassword) {
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res.status(400).json({
+          success: false,
+          message: 'Incorrect current password',
+        });
+      }
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword.trim(), salt);
+    await user.save();
+
+    await logAudit({
+      req,
+      action: 'PASSWORD_CHANGED',
+      module: 'user',
+      targetId: user._id,
+      description: `User "${user.name}" changed their password`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password updated successfully',
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+// 8. Update Own Profile (Current Logged-in User)
+async function updateOwnProfile(req, res) {
+  const { name, phone } = req.body;
+  const userId = req.user?.userId || req.user?._id;
+
+  try {
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (name && name.trim().length >= 2) {
+      user.name = name.trim();
+    }
+    if (phone !== undefined) {
+      user.phone = phone.trim();
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        phone: user.phone,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
 module.exports = {
   userRegister,
   userLogin,
@@ -631,4 +729,6 @@ module.exports = {
   listOrganizationUsers,
   updateUser,
   deleteUser,
+  changePassword,
+  updateOwnProfile,
 };

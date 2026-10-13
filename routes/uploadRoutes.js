@@ -8,19 +8,18 @@ const {
   getStorageStatusHandler,
 } = require('../controller/uploadController');
 
-// Multer middleware supporting either 'file' or 'image' field name
+// Multer middleware supporting any field name ('file', 'image', 'logo', etc.)
 const uploadMiddleware = (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
-    if (!err && req.file) {
-      return next();
+  upload.any()(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message });
     }
-    // If 'file' wasn't present or errored, try 'image'
-    upload.single('image')(req, res, (err2) => {
-      if (err2) {
-        return res.status(400).json({ success: false, message: err2.message });
-      }
-      next();
-    });
+    if (req.files && req.files.length > 0) {
+      req.file =
+        req.files.find((f) => ['file', 'image', 'logo'].includes(f.fieldname)) ||
+        req.files[0];
+    }
+    next();
   });
 };
 

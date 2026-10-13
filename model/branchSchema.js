@@ -24,6 +24,37 @@ const branchSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    logoUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    gstin: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: '',
+    },
+    fssai: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    tagline: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    receiptFooter: {
+      type: String,
+      trim: true,
+      default: 'Thank you! Visit again...!!!!',
+    },
     isActive: {
       type: Boolean,
       default: true,

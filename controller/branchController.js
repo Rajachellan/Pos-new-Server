@@ -49,11 +49,29 @@ async function addBranch(req, res) {
       });
     }
 
+    const {
+      branchName,
+      branchCode,
+      address,
+      logoUrl,
+      phone,
+      gstin,
+      fssai,
+      tagline,
+      receiptFooter,
+    } = req.body;
+
     const newBranch = new branchModel({
       organization: orgId,
       branchName: branchName.trim(),
       branchCode: code,
       address: address ? address.trim() : '',
+      logoUrl: logoUrl ? logoUrl.trim() : '',
+      phone: phone ? phone.trim() : '',
+      gstin: gstin ? gstin.trim().toUpperCase() : '',
+      fssai: fssai ? fssai.trim() : '',
+      tagline: tagline ? tagline.trim() : '',
+      receiptFooter: receiptFooter ? receiptFooter.trim() : 'Thank you! Visit again...!!!!',
       createdBy: req.user.userId,
     });
 
@@ -103,6 +121,37 @@ async function getBranch(req, res) {
   }
 }
 
+// 2b. Get Single Branch Details
+async function getBranchById(req, res) {
+  const { id } = req.params;
+  const orgId = req.organizationId || req.user?.organizationId;
+
+  try {
+    const branch = await branchModel.findOne({
+      _id: id,
+      ...(orgId ? { organization: orgId } : {}),
+    }).populate('organization', 'name legalName logoUrl address phno gstNumber');
+
+    if (!branch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Branch not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Branch details fetched',
+      data: branch,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
 // 3. Get Branch By Role / Scope
 async function getBranchByRole(req, res) {
   try {
@@ -141,7 +190,18 @@ async function getBranchByRole(req, res) {
 // 4. Update Branch
 async function updateBranch(req, res) {
   const { id } = req.params;
-  const { branchName, branchCode, address, isActive } = req.body;
+  const {
+    branchName,
+    branchCode,
+    address,
+    logoUrl,
+    phone,
+    gstin,
+    fssai,
+    tagline,
+    receiptFooter,
+    isActive,
+  } = req.body;
   const orgId = req.organizationId || req.user.organizationId;
 
   try {
@@ -160,6 +220,12 @@ async function updateBranch(req, res) {
     if (branchName) branch.branchName = branchName.trim();
     if (branchCode) branch.branchCode = branchCode.toUpperCase().trim();
     if (address !== undefined) branch.address = address.trim();
+    if (logoUrl !== undefined) branch.logoUrl = logoUrl.trim();
+    if (phone !== undefined) branch.phone = phone.trim();
+    if (gstin !== undefined) branch.gstin = gstin.trim().toUpperCase();
+    if (fssai !== undefined) branch.fssai = fssai.trim();
+    if (tagline !== undefined) branch.tagline = tagline.trim();
+    if (receiptFooter !== undefined) branch.receiptFooter = receiptFooter.trim();
     if (isActive !== undefined) branch.isActive = Boolean(isActive);
 
     await branch.save();
@@ -249,6 +315,7 @@ async function deleteBranch(req, res) {
 module.exports = {
   addBranch,
   getBranch,
+  getBranchById,
   getBranchByRole,
   updateBranch,
   deleteBranch,

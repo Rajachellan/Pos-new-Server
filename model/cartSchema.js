@@ -131,6 +131,16 @@ const orderSchema = new mongoose.Schema(
       default: "",
     },
 
+    customerName: {
+      type: String,
+      default: "",
+    },
+
+    customerPhone: {
+      type: String,
+      default: "",
+    },
+
     notes: {
       type: String,
       default: "",

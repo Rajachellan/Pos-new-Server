@@ -8,6 +8,7 @@ const { requirePermission } = require('../middleware/permissionMiddleware');
 const {
   addBranch,
   getBranch,
+  getBranchById,
   getBranchByRole,
   updateBranch,
   deleteBranch,
@@ -35,6 +36,13 @@ router.get(
   '/get/branch/role',
   optionalAuth,
   getBranchByRole
+);
+
+router.get(
+  '/branch/:id',
+  authMiddleware,
+  organizationMiddleware,
+  getBranchById
 );
 
 router.put(

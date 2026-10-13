@@ -2,6 +2,36 @@ const tableModel = require('../model/tableModel');
 const areaModel = require('../model/areaSchema');
 const { logAudit } = require('../utils/auditLogger');
 
+// Helper to sort tables naturally by table number (e.g. T1, T2, T3 ... T9, T10, T11, T12)
+function sortTablesNaturally(tables) {
+  if (!Array.isArray(tables)) return tables;
+  return tables.sort((a, b) => {
+    const strA = (a?.tableNumber || a?.tableName || '').toString().trim();
+    const strB = (b?.tableNumber || b?.tableName || '').toString().trim();
+
+    const matchA = strA.match(/\d+/);
+    const matchB = strB.match(/\d+/);
+
+    if (matchA && matchB) {
+      const prefixA = strA.slice(0, matchA.index).replace(/[^a-zA-Z]/g, '').toLowerCase();
+      const prefixB = strB.slice(0, matchB.index).replace(/[^a-zA-Z]/g, '').toLowerCase();
+
+      if (prefixA !== prefixB) {
+        return prefixA.localeCompare(prefixB);
+      }
+
+      const numA = parseInt(matchA[0], 10);
+      const numB = parseInt(matchB[0], 10);
+
+      if (numA !== numB) {
+        return numA - numB;
+      }
+    }
+
+    return strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
 // 1. Add Table (Tenant-Scoped)
 async function addTableFun(req, res) {
   const { tableNumber, areaName } = req.body;
@@ -198,15 +228,15 @@ async function getAllTables(req, res) {
           path: 'branchName',
           select: 'branchName branchCode',
         },
-      })
-      .sort({ tableNumber: 1 });
+      });
 
     await reconcileTableStatuses(getData);
+    const sortedData = sortTablesNaturally(getData);
 
     return res.status(200).json({
       success: true,
       message: 'Data Fetched',
-      data: getData,
+      data: sortedData,
     });
   } catch (err) {
     return res.status(500).json({
@@ -238,11 +268,12 @@ async function getTableByArea(req, res) {
       });
 
     await reconcileTableStatuses(getData);
+    const sortedData = sortTablesNaturally(getData);
 
     return res.status(200).json({
       success: true,
       message: 'Tables Fetched Successfully',
-      data: getData,
+      data: sortedData,
     });
   } catch (err) {
     return res.status(500).json({
@@ -313,14 +344,15 @@ async function getTableByBranch(req, res) {
         path: 'branchName',
         select: 'branchName branchCode',
       },
-    }).sort({ tableNumber: 1 });
+    });
 
     await reconcileTableStatuses(tables);
+    const sortedTables = sortTablesNaturally(tables);
 
     return res.status(200).json({
       success: true,
       message: 'Tables fetched by branch',
-      data: tables,
+      data: sortedTables,
     });
   } catch (err) {
     return res.status(500).json({
