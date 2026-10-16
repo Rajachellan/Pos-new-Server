@@ -1,6 +1,7 @@
 const cartModel = require("../model/cartSchema");
 const menuModel = require("../model/foodMenuSchema");
 const tableModel = require("../model/tableModel");
+const branchModel = require("../model/branchSchema");
 const { emitToBranch } = require("../utils/socket");
 
 function recalculateCart(cart) {
@@ -234,7 +235,7 @@ async function getKitchenOrders(req, res) {
       .populate("items.menuId", "name category price")
       .sort({ createdAt: 1 });
 
-    // Multi-tenant branch filtering
+    // Multi-tenant branch filtering: direct branch, table branch, or fallback for organization orders
     const filteredOrders = orders.filter((order) => {
       if (!targetBranch || targetBranch === "ALL" || targetBranch === "all") return true;
       const directBranch = order.branchId ? order.branchId.toString() : null;
@@ -243,11 +244,27 @@ async function getKitchenOrders(req, res) {
         order.tableId?.areaName?.branchName?.toString() ||
         order.tableId?.branch?.toString();
       
-      return directBranch === targetBranch.toString() || tableBranch === targetBranch.toString();
+      if (directBranch) {
+        return directBranch === targetBranch.toString();
+      }
+      if (tableBranch) {
+        return tableBranch === targetBranch.toString();
+      }
+      // If takeaway/order has no branch assigned, include it for the organization's branch context
+      return true;
+    });
+
+    // Keep READY orders from the last 24 hours so stale days-old orders do not flood the KDS
+    const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const activeOrders = filteredOrders.filter((order) => {
+      if (order.kitchenStatus === "READY" || order.status === "READY") {
+        return new Date(order.createdAt) >= cutoff24h;
+      }
+      return true;
     });
 
     // Format output
-    const formattedOrders = filteredOrders.map((order) => {
+    const formattedOrders = activeOrders.map((order) => {
       const orderObj = order.toObject();
       if (!orderObj.orderNumber) {
         orderObj.orderNumber = `#${order._id.toString().slice(-4).toUpperCase()}`;
@@ -1000,11 +1017,20 @@ async function createTakeawayOrder(req, res) {
     }
 
     const orgId = req.user?.organizationId;
-    const branchId =
+    let branchId =
       bodyBranchId ||
+      req.headers["x-branch-id"] ||
       req.user?.branch ||
       req.user?.branchId ||
       null;
+
+    // Fallback: If no branch provided, auto-assign to the organization's primary/only branch
+    if (!branchId && orgId) {
+      const defaultBranch = await branchModel.findOne({ organization: orgId }).sort({ createdAt: 1 });
+      if (defaultBranch) {
+        branchId = defaultBranch._id;
+      }
+    }
 
     // Calculate sequential token number for today
     const startOfToday = new Date();
@@ -1068,7 +1094,14 @@ async function createTakeawayOrder(req, res) {
       orderType: "TAKEAWAY",
       customerName: newCart.customerName,
       customerPhone: newCart.customerPhone,
-      items: newCart.items,
+      items: newCart.items.map((i) => ({
+        name: i.name,
+        price: i.price,
+        quantity: i.quantity,
+        isManual: i.isManual || false,
+        notes: i.notes || "",
+        kitchenStatus: i.kitchenStatus || "NEW",
+      })),
       notes: newCart.notes,
       status: "ORDERED",
       kitchenStatus: "NEW",
