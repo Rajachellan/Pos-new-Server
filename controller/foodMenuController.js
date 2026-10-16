@@ -311,19 +311,113 @@ async function addCategoryFun(req, res) {
 async function deleteCategoryFun(req, res) {
   const { id } = req.params;
   const orgId = req.organizationId || req.user.organizationId;
+  const deleteDishes = req.query.deleteDishes === 'true' || req.body?.deleteDishes === true;
 
   try {
+    const isObjectId = Boolean(id.match(/^[0-9a-fA-F]{24}$/));
     const filter = {
       ...(orgId ? { organization: orgId } : {}),
-      $or: [{ _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }, { name: id.toUpperCase().trim() }],
+      $or: [{ _id: isObjectId ? id : null }, { name: id.toUpperCase().trim() }],
     };
 
     const deleted = await categoryModel.findOneAndDelete(filter);
+    const catName = deleted ? deleted.name : id.toUpperCase().trim();
+
+    let deletedItemsCount = 0;
+    if (deleteDishes) {
+      const delRes = await menuModel.deleteMany({
+        ...(orgId ? { organization: orgId } : {}),
+        category: { $regex: new RegExp(`^${catName}$`, 'i') },
+      });
+      deletedItemsCount = delRes.deletedCount;
+    }
+
+    try {
+      await logAudit({
+        req,
+        action: 'CATEGORY_DELETED',
+        module: 'food_menu',
+        targetId: deleted?._id || id,
+        description: `Category "${catName}" deleted. ${deletedItemsCount} dishes removed.`,
+      });
+    } catch (auditErr) {}
 
     return res.status(200).json({
       success: true,
       message: 'Category removed successfully',
       data: deleted,
+      deletedDishesCount: deletedItemsCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+}
+
+// 8. Update / Rename Category (Tenant-Scoped)
+async function updateCategoryFun(req, res) {
+  const { id } = req.params;
+  const { name, description } = req.body;
+  const orgId = req.organizationId || req.user.organizationId;
+
+  try {
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Category name is required',
+      });
+    }
+
+    const trimmedUpper = name.trim().toUpperCase();
+    const isObjectId = Boolean(id.match(/^[0-9a-fA-F]{24}$/));
+
+    const filter = {
+      ...(orgId ? { organization: orgId } : {}),
+      $or: [{ _id: isObjectId ? id : null }, { name: id.toUpperCase().trim() }],
+    };
+
+    const existingCat = await categoryModel.findOne(filter);
+    const oldName = existingCat ? existingCat.name : id.toUpperCase().trim();
+
+    const updated = await categoryModel.findOneAndUpdate(
+      filter,
+      {
+        $set: {
+          name: trimmedUpper,
+          ...(description !== undefined ? { description: description.trim() } : {}),
+        },
+      },
+      { new: true, upsert: true }
+    );
+
+    // Also update all dishes in food menu with the old category name!
+    const menuUpdateRes = await menuModel.updateMany(
+      {
+        ...(orgId ? { organization: orgId } : {}),
+        category: { $regex: new RegExp(`^${oldName}$`, 'i') },
+      },
+      {
+        $set: { category: trimmedUpper },
+      }
+    );
+
+    try {
+      await logAudit({
+        req,
+        action: 'CATEGORY_UPDATED',
+        module: 'food_menu',
+        targetId: updated._id,
+        description: `Category "${oldName}" renamed to "${trimmedUpper}". ${menuUpdateRes.modifiedCount} dishes updated.`,
+      });
+    } catch (auditErr) {}
+
+    return res.status(200).json({
+      success: true,
+      message: 'Category updated successfully',
+      data: updated,
+      itemsUpdated: menuUpdateRes.modifiedCount,
     });
   } catch (err) {
     return res.status(500).json({
@@ -341,4 +435,5 @@ module.exports = {
   getCategoriesFun,
   addCategoryFun,
   deleteCategoryFun,
+  updateCategoryFun,
 };

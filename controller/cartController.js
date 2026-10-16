@@ -992,13 +992,6 @@ async function createTakeawayOrder(req, res) {
   } = req.body;
 
   try {
-    if (!customerName || !customerName.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Customer name is compulsory for takeaway parcel orders",
-      });
-    }
-
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,

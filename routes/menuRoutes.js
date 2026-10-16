@@ -13,6 +13,7 @@ const {
   getCategoriesFun,
   addCategoryFun,
   deleteCategoryFun,
+  updateCategoryFun,
 } = require('../controller/foodMenuController');
 
 router.post(
@@ -60,6 +61,13 @@ router.post(
   authMiddleware,
   organizationMiddleware,
   addCategoryFun
+);
+
+router.put(
+  '/category/:id',
+  authMiddleware,
+  organizationMiddleware,
+  updateCategoryFun
 );
 
 router.delete(
