@@ -308,23 +308,54 @@ async function removeFromCart(req, res) {
       });
     }
 
-    cart.items = cart.items.filter((item) => {
-      if (itemId && item._id.toString() === itemId) return false;
-      if (menuId && item.menuId && item.menuId.toString() === menuId) return false;
-      return true;
+    const itemToRemove = cart.items.find((item) => {
+      if (itemId && item._id.toString() === itemId) return true;
+      if (menuId && item.menuId && item.menuId.toString() === menuId) return true;
+      return false;
     });
 
+    if (itemToRemove) {
+      cart.items.pull(itemToRemove._id);
+    } else {
+      cart.items = cart.items.filter((item) => {
+        if (itemId && item._id.toString() === itemId) return false;
+        if (menuId && item.menuId && item.menuId.toString() === menuId) return false;
+        return true;
+      });
+    }
+
     recalculateCart(cart);
+
+    if (cart.items.length === 0) {
+      cart.status = "CANCELLED";
+      cart.kitchenStatus = "SERVED";
+    }
+
     await cart.save();
+
+    const branchIdStr = cart.branchId ? cart.branchId.toString() : null;
 
     if (cart.items.length === 0) {
       await tableModel.updateOne(
         { _id: tableId },
         { $set: { availabilityStatus: "AVAILABLE" } }
       );
-      emitToBranch(cart.branchId ? cart.branchId.toString() : null, "table_updated", {
+      emitToBranch(branchIdStr, "table_updated", {
         tableId,
         availabilityStatus: "AVAILABLE",
+      });
+      emitToBranch(branchIdStr, "order_updated", {
+        orderId: cart._id,
+        status: "CANCELLED",
+        kitchenStatus: "SERVED",
+      });
+    } else if (cart.status !== "PENDING") {
+      emitToBranch(branchIdStr, "order_updated", {
+        orderId: cart._id,
+        branchId: branchIdStr,
+        status: cart.status,
+        kitchenStatus: cart.kitchenStatus,
+        items: cart.items,
       });
     }
 
@@ -374,31 +405,117 @@ async function updateItemQuantity(req, res) {
     }
 
     if (action === "decrease") {
-      item.quantity -= 1;
-      if (item.quantity <= 0) {
-        cart.items = cart.items.filter((i) => i._id.toString() !== item._id.toString());
+      if (item.quantity > 1) {
+        item.quantity -= 1;
+        if (cart.status !== "PENDING") {
+          item.kitchenStatus = "NEW";
+        }
+      } else {
+        // Quantity is 1; pull the subdocument cleanly to avoid min: 1 validation error
+        cart.items.pull(item._id);
       }
     } else {
       item.quantity += 1;
+      if (cart.status !== "PENDING") {
+        item.kitchenStatus = "NEW";
+      }
     }
 
     recalculateCart(cart);
+
+    if (cart.items.length === 0) {
+      cart.status = "CANCELLED";
+      cart.kitchenStatus = "SERVED";
+    }
+
     await cart.save();
+
+    const branchIdStr = cart.branchId ? cart.branchId.toString() : null;
 
     if (cart.items.length === 0) {
       await tableModel.updateOne(
         { _id: tableId },
         { $set: { availabilityStatus: "AVAILABLE" } }
       );
-      emitToBranch(cart.branchId ? cart.branchId.toString() : null, "table_updated", {
+      emitToBranch(branchIdStr, "table_updated", {
         tableId,
         availabilityStatus: "AVAILABLE",
+      });
+      emitToBranch(branchIdStr, "order_updated", {
+        orderId: cart._id,
+        status: "CANCELLED",
+        kitchenStatus: "SERVED",
+      });
+    } else if (cart.status !== "PENDING") {
+      emitToBranch(branchIdStr, "order_updated", {
+        orderId: cart._id,
+        branchId: branchIdStr,
+        status: cart.status,
+        kitchenStatus: cart.kitchenStatus,
+        items: cart.items,
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "Quantity updated",
+      data: cart,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+async function cancelOrder(req, res) {
+  const { tableId, orderId, reason } = req.body;
+
+  try {
+    let cart = null;
+    if (orderId) {
+      cart = await cartModel.findById(orderId);
+    } else if (tableId) {
+      cart = await cartModel.findOne({
+        tableId,
+        status: { $in: ["PENDING", "ORDERED", "PREPARING", "READY"] },
+      }).sort({ createdAt: -1 });
+    }
+
+    const targetTableId = tableId || cart?.tableId;
+
+    if (cart) {
+      cart.status = "CANCELLED";
+      cart.kitchenStatus = "SERVED";
+      if (reason) {
+        cart.notes = (cart.notes ? cart.notes + " | " : "") + `Cancelled: ${reason}`;
+      }
+      await cart.save();
+
+      const branchIdStr = cart.branchId ? cart.branchId.toString() : null;
+      emitToBranch(branchIdStr, "order_updated", {
+        orderId: cart._id,
+        branchId: branchIdStr,
+        status: "CANCELLED",
+        kitchenStatus: "SERVED",
+      });
+    }
+
+    if (targetTableId) {
+      await tableModel.updateOne(
+        { _id: targetTableId },
+        { $set: { availabilityStatus: "AVAILABLE" } }
+      );
+      emitToBranch(null, "table_updated", {
+        tableId: targetTableId,
+        availabilityStatus: "AVAILABLE",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Order / Bill cancelled successfully",
       data: cart,
     });
   } catch (error) {
@@ -785,7 +902,13 @@ async function updateKitchenOrderStatus(req, res) {
 async function getOrderHistory(req, res) {
   try {
     const { status, startDate, endDate } = req.query;
-    let filter = { "items.0": { $exists: true } };
+    let filter = {
+      $or: [
+        { "items.0": { $exists: true } },
+        { status: "CANCELLED" },
+        { status: { $in: ["PENDING", "ORDERED", "PREPARING", "READY"] } },
+      ],
+    };
 
     if (req.user?.organizationId) {
       filter.organization = req.user.organizationId;
@@ -807,7 +930,11 @@ async function getOrderHistory(req, res) {
     }
 
     if (status && status !== "ALL") {
-      filter.status = status;
+      if (status === "ACTIVE") {
+        filter.status = { $in: ["PENDING", "ORDERED", "PREPARING", "READY"] };
+      } else {
+        filter.status = status;
+      }
     }
 
     if (startDate || endDate) {
@@ -822,7 +949,14 @@ async function getOrderHistory(req, res) {
 
     const orders = await cartModel
       .find(filter)
-      .populate("tableId", "tableNumber areaId")
+      .populate({
+        path: "tableId",
+        select: "tableNumber areaName",
+        populate: {
+          path: "areaName",
+          select: "areaName",
+        },
+      })
       .sort({ createdAt: -1 });
 
     // Calculate total summary metrics
@@ -1008,10 +1142,10 @@ async function releaseTable(req, res) {
       if (c.status === "PENDING" && (!c.items || c.items.length === 0)) {
         await cartModel.deleteOne({ _id: c._id });
       } else {
-        c.status = "COMPLETED";
+        c.status = "CANCELLED";
         c.kitchenStatus = "SERVED";
-        c.paidAt = now;
-        if (!c.paymentMethod) c.paymentMethod = "CASH";
+        c.cancelledAt = now;
+        c.notes = (c.notes ? c.notes + " | " : "") + "Table released without settlement";
         await c.save();
       }
     }
@@ -1042,6 +1176,84 @@ async function releaseTable(req, res) {
     });
   }
 }
+
+async function cancelOrder(req, res) {
+  try {
+    const orderId = req.params.orderId || req.body.orderId;
+    const { tableId, reason = "Cancelled by user" } = req.body;
+
+    let cart = null;
+    if (orderId) {
+      cart = await cartModel.findById(orderId);
+    } else if (tableId) {
+      cart = await cartModel
+        .findOne({
+          tableId,
+          status: { $in: ["PENDING", "ORDERED", "PREPARING", "READY"] },
+        })
+        .sort({ createdAt: -1 });
+    }
+
+    if (!cart) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found or already settled/cancelled",
+      });
+    }
+
+    const now = new Date();
+    cart.status = "CANCELLED";
+    cart.kitchenStatus = "SERVED";
+    cart.cancelledAt = now;
+    cart.notes = (cart.notes ? cart.notes + " | " : "") + `Cancelled: ${reason}`;
+    await cart.save();
+
+    const targetTableId = tableId || cart.tableId;
+    if (targetTableId) {
+      const freedTable = await tableModel
+        .findByIdAndUpdate(
+          targetTableId,
+          { $set: { availabilityStatus: "AVAILABLE" } },
+          { new: true }
+        )
+        .populate({
+          path: "areaName",
+          populate: { path: "branchName" },
+        });
+
+      const branchId =
+        freedTable?.areaName?.branchName?._id ||
+        freedTable?.areaName?.branchName ||
+        freedTable?.branch ||
+        req.user?.branch ||
+        null;
+      const branchIdStr = branchId ? branchId.toString() : null;
+
+      emitToBranch(branchIdStr, "table_updated", {
+        tableId: targetTableId,
+        availabilityStatus: "AVAILABLE",
+      });
+    }
+
+    const branchIdStr = (cart.branchId || req.user?.branch || "").toString() || null;
+    emitToBranch(branchIdStr, "order_updated", {
+      orderId: cart._id,
+      status: "CANCELLED",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order #${cart.orderNumber || cart._id.toString().slice(-6)} cancelled successfully`,
+      data: cart,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
 
 // =========================================================================
 // TAKEAWAY / PARCEL ORDER CONTROLLERS
@@ -1244,6 +1456,7 @@ module.exports = {
   payOrder,
   updateKitchenOrderStatus,
   releaseTable,
+  cancelOrder,
   createTakeawayOrder,
   getTakeawayOrders,
 };
