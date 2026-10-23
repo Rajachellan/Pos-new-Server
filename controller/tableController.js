@@ -135,17 +135,21 @@ async function reconcileTableStatuses(tables) {
       status: { $in: ['ORDERED', 'PREPARING', 'READY'] },
       'items.0': { $exists: true },
       createdAt: { $gte: twelveHoursAgo },
-    }).select('tableId status items kitchenStatus');
+    }).select('tableId status items kitchenStatus orderNumber subtotal gstAmount totalAmount createdAt').lean();
 
-    const activeTableIdSet = new Set(
-      activeCarts
-        .filter((c) => Array.isArray(c.items) && c.items.length > 0)
-        .map((c) => c.tableId.toString())
-    );
+    const activeCartMap = new Map();
+    for (const c of activeCarts) {
+      if (Array.isArray(c.items) && c.items.length > 0) {
+        if (!activeCartMap.has(c.tableId.toString())) {
+          activeCartMap.set(c.tableId.toString(), c);
+        }
+      }
+    }
 
     const bulkOps = [];
     for (const table of tables) {
-      const isOccupied = activeTableIdSet.has(table._id.toString());
+      const activeCart = activeCartMap.get(table._id.toString());
+      const isOccupied = !!activeCart;
       const expected = isOccupied ? 'OCCUPIED' : 'AVAILABLE';
       if (table.availabilityStatus !== expected) {
         table.availabilityStatus = expected;
@@ -155,6 +159,40 @@ async function reconcileTableStatuses(tables) {
             update: { $set: { availabilityStatus: expected } },
           },
         });
+      }
+
+      if (activeCart) {
+        const orderNum = activeCart.orderNumber || `#${activeCart._id.toString().slice(-4).toUpperCase()}`;
+        const totalItemsCount = (activeCart.items || []).reduce((sum, it) => sum + (it.quantity || 1), 0);
+        const subtotal = activeCart.subtotal || 0;
+        const gstAmount = activeCart.gstAmount || 0;
+        const totalAmount = activeCart.totalAmount || (subtotal + gstAmount);
+
+        const orderSummary = {
+          _id: activeCart._id,
+          orderNumber: orderNum,
+          itemsCount: totalItemsCount,
+          items: (activeCart.items || []).map((it) => ({
+            name: it.name,
+            quantity: it.quantity || 1,
+            price: it.price || 0,
+          })),
+          subtotal,
+          gstAmount,
+          totalAmount,
+          status: activeCart.status,
+          createdAt: activeCart.createdAt,
+        };
+
+        if (table._doc) {
+          table._doc.activeOrder = orderSummary;
+        }
+        table.activeOrder = orderSummary;
+      } else {
+        if (table._doc) {
+          table._doc.activeOrder = null;
+        }
+        table.activeOrder = null;
       }
     }
 

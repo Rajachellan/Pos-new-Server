@@ -784,7 +784,7 @@ async function updateKitchenOrderStatus(req, res) {
 
 async function getOrderHistory(req, res) {
   try {
-    const { status } = req.query;
+    const { status, startDate, endDate } = req.query;
     let filter = { "items.0": { $exists: true } };
 
     if (req.user?.organizationId) {
@@ -810,6 +810,16 @@ async function getOrderHistory(req, res) {
       filter.status = status;
     }
 
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        filter.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filter.createdAt.$lte = new Date(endDate);
+      }
+    }
+
     const orders = await cartModel
       .find(filter)
       .populate("tableId", "tableNumber areaId")
@@ -827,6 +837,44 @@ async function getOrderHistory(req, res) {
       ? completedOrders.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0)
       : null;
 
+    // Reference revenues (Today, Yesterday, This Month) for quick reference
+    let todayRevenue = 0;
+    let yesterdayRevenue = 0;
+    let thisMonthRevenue = 0;
+
+    if (canViewFinances) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const endOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const minDate = startOfYesterday < startOfMonth ? startOfYesterday : startOfMonth;
+
+      const baseOrgFilter = { "items.0": { $exists: true }, status: "COMPLETED" };
+      if (req.user?.organizationId) baseOrgFilter.organization = req.user.organizationId;
+      if (targetBranch) baseOrgFilter.branchId = targetBranch;
+      baseOrgFilter.createdAt = { $gte: minDate, $lte: endOfMonth };
+
+      const monthOrders = await cartModel.find(baseOrgFilter, "totalAmount createdAt").lean();
+      monthOrders.forEach((o) => {
+        const amt = Number(o.totalAmount) || 0;
+        const d = new Date(o.createdAt);
+        if (d >= startOfMonth && d <= endOfMonth) {
+          thisMonthRevenue += amt;
+        }
+        if (d >= startOfToday && d <= endOfToday) {
+          todayRevenue += amt;
+        } else if (d >= startOfYesterday && d <= endOfYesterday) {
+          yesterdayRevenue += amt;
+        }
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: orders,
@@ -836,6 +884,9 @@ async function getOrderHistory(req, res) {
         canViewFinances,
         activeCount,
         cancelledCount,
+        todayRevenue,
+        yesterdayRevenue,
+        thisMonthRevenue,
       },
     });
   } catch (error) {

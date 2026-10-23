@@ -2,6 +2,21 @@ const menuModel = require('../model/foodMenuSchema');
 const categoryModel = require('../model/categorySchema');
 const { logAudit } = require('../utils/auditLogger');
 
+// High-Speed In-Memory Cache for Menus and Categories
+const menuCache = new Map();
+const categoryCache = new Map();
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes TTL
+
+function invalidateMenuCache(orgId) {
+  if (orgId) {
+    menuCache.delete(String(orgId));
+    categoryCache.delete(String(orgId));
+  } else {
+    menuCache.clear();
+    categoryCache.clear();
+  }
+}
+
 // 1. Add Food Menu Item (Tenant-Scoped)
 async function addMenuFun(req, res) {
   const { category, name, price, description, imageUrl, isAvailable, foodType } = req.body;
@@ -44,6 +59,7 @@ async function addMenuFun(req, res) {
     });
 
     await addMenu.save();
+    invalidateMenuCache(orgId);
 
     await logAudit({
       req,
@@ -66,14 +82,31 @@ async function addMenuFun(req, res) {
   }
 }
 
-// 2. Get Food Menu Items (Tenant-Scoped)
+// 2. Get Food Menu Items (Tenant-Scoped with High-Speed In-Memory Cache)
 async function getMenuFun(req, res) {
   const orgId = req.organizationId || req.user.organizationId;
 
   try {
+    const orgKey = orgId ? String(orgId) : 'ALL';
+    const now = Date.now();
+    const cached = menuCache.get(orgKey);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      return res.status(200).json({
+        success: true,
+        message: 'Data Fetched (cached)',
+        data: cached.data,
+      });
+    }
+
     const filter = orgId ? { organization: orgId } : {};
 
-    const getData = await menuModel.find(filter).sort({ category: 1, name: 1 });
+    const getData = await menuModel
+      .find(filter)
+      .select('_id name price category foodType isAvailable description imageUrl')
+      .lean()
+      .sort({ category: 1, name: 1 });
+
+    menuCache.set(orgKey, { timestamp: now, data: getData });
 
     return res.status(200).json({
       success: true,
@@ -132,6 +165,7 @@ async function updateMenuFun(req, res) {
     if (foodType !== undefined) item.foodType = String(foodType).toUpperCase();
 
     await item.save();
+    invalidateMenuCache(orgId);
 
     await logAudit({
       req,
@@ -172,6 +206,8 @@ async function deleteMenuFun(req, res) {
       });
     }
 
+    invalidateMenuCache(orgId);
+
     await logAudit({
       req,
       action: 'MENU_ITEM_DELETED',
@@ -192,14 +228,25 @@ async function deleteMenuFun(req, res) {
   }
 }
 
-// 5. Get Categories (Tenant-Scoped, Dynamic)
+// 5. Get Categories (Tenant-Scoped, Dynamic with High-Speed In-Memory Cache)
 async function getCategoriesFun(req, res) {
   const orgId = req.organizationId || req.user.organizationId;
   try {
+    const orgKey = orgId ? String(orgId) : 'ALL';
+    const now = Date.now();
+    const cached = categoryCache.get(orgKey);
+    if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+      return res.status(200).json({
+        success: true,
+        message: 'Categories fetched successfully (cached)',
+        data: cached.data,
+      });
+    }
+
     const filter = orgId ? { organization: orgId } : {};
 
     // Fetch explicitly created categories
-    const explicitCategories = await categoryModel.find(filter).sort({ name: 1 });
+    const explicitCategories = await categoryModel.find(filter).lean().sort({ name: 1 });
 
     // Also fetch distinct categories from menu items to include existing ones
     const itemCategories = await menuModel.distinct('category', filter);
@@ -228,6 +275,7 @@ async function getCategoriesFun(req, res) {
     });
 
     const result = Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    categoryCache.set(orgKey, { timestamp: now, data: result });
 
     return res.status(200).json({
       success: true,
@@ -285,6 +333,7 @@ async function addCategoryFun(req, res) {
     });
 
     await newCategory.save();
+    invalidateMenuCache(orgId);
 
     await logAudit({
       req,
@@ -331,6 +380,8 @@ async function deleteCategoryFun(req, res) {
       });
       deletedItemsCount = delRes.deletedCount;
     }
+
+    invalidateMenuCache(orgId);
 
     try {
       await logAudit({
@@ -402,6 +453,8 @@ async function updateCategoryFun(req, res) {
         $set: { category: trimmedUpper },
       }
     );
+
+    invalidateMenuCache(orgId);
 
     try {
       await logAudit({
